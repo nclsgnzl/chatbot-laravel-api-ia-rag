@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Chatbot Taekwondo — Laravel API + RAG</title>
+<style>
+  body { font-family: sans-serif; max-width: 620px; margin: 40px auto; padding: 0 20px; background: #f5f6fa; }
+  h2 { color: #1a1a2e; }
+  .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px; }
+  input { width: 90%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 5px; }
+  button { padding: 10px 20px; border: none; background: #2563eb; color: white; border-radius: 5px; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  button:disabled { background: #9ca3af; cursor: not-allowed; }
+  #respuesta { margin-top: 15px; white-space: pre-wrap; background: #f4f4f4; padding: 15px; border-radius: 8px; min-height: 40px; }
+  #estadoSesion { font-size: 13px; color: #666; margin-top: 8px; }
+  .oculto { display: none; }
+  .error { color: #b91c1c; }
+</style>
+</head>
+<body>
+
+<h2>🥋 Chatbot Taekwondo</h2>
+<p style="color:#666; font-size: 14px;">
+  Frontend (HTML/JS) → API Laravel (auth + tokens) → Servicio RAG en Python
+</p>
+
+<!-- Bloque de login -->
+<div class="card" id="bloqueLogin">
+  <h3>Iniciar sesión</h3>
+  <input id="email" type="email" placeholder="Email" value="demo@taekwondo.test"><br>
+  <input id="password" type="password" placeholder="Contraseña" value="password123"><br>
+  <button onclick="login()">Ingresar</button>
+  <div id="estadoSesion"></div>
+</div>
+
+<!-- Bloque de chat (oculto hasta hacer login) -->
+<div class="card oculto" id="bloqueChat">
+  <h3>Pregunta al asistente</h3>
+  <input id="pregunta" type="text" placeholder="Pregunta sobre poomsae, reglas, combate...">
+  <button onclick="preguntar()" id="btnPreguntar">Preguntar</button>
+  <button onclick="logout()" style="background:#6b7280; margin-left:6px;">Cerrar sesión</button>
+  <div id="respuesta">Esperando pregunta...</div>
+</div>
+
+<script>
+  // Ajusta esta URL si tu API Laravel corre en otro host/puerto
+  const API_URL = "http://127.0.0.1:8001/api";
+
+  let token = null;
+
+  async function login() {
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+    const estado = document.getElementById("estadoSesion");
+    estado.innerText = "Ingresando...";
+    estado.className = "";
+
+    try {
+      const res = await fetch(`${API_URL}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        estado.innerText = data.message || "Error al iniciar sesión";
+        estado.className = "error";
+        return;
+      }
+
+      token = data.token;
+      estado.innerText = `Conectado como ${data.user.name}`;
+      document.getElementById("bloqueLogin").classList.add("oculto");
+      document.getElementById("bloqueChat").classList.remove("oculto");
+
+    } catch (err) {
+      estado.innerText = "No se pudo conectar con la API de Laravel.";
+      estado.className = "error";
+    }
+  }
+
+  async function preguntar() {
+    const pregunta = document.getElementById("pregunta").value;
+    const respuestaDiv = document.getElementById("respuesta");
+    const btn = document.getElementById("btnPreguntar");
+    if (!pregunta.trim()) return;
+
+    btn.disabled = true;
+    respuestaDiv.innerText = "Pensando...";
+
+    try {
+      const res = await fetch(`${API_URL}/chat/preguntar`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ pregunta })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        respuestaDiv.innerText = `Error ${res.status}: ${data.message || "no se pudo procesar la pregunta"}`;
+        if (res.status === 401) {
+          // Token inválido o expirado: forzar login de nuevo
+          token = null;
+          document.getElementById("bloqueChat").classList.add("oculto");
+          document.getElementById("bloqueLogin").classList.remove("oculto");
+        }
+        return;
+      }
+
+      respuestaDiv.innerText = data.respuesta;
+
+    } catch (err) {
+      respuestaDiv.innerText = "Error al conectar con la API.";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function logout() {
+    try {
+      await fetch(`${API_URL}/logout`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" }
+      });
+    } catch (e) {}
+    token = null;
+    document.getElementById("bloqueChat").classList.add("oculto");
+    document.getElementById("bloqueLogin").classList.remove("oculto");
+    document.getElementById("estadoSesion").innerText = "";
+  }
+
+  document.getElementById("pregunta")?.addEventListener("keypress", function(e) {
+    if (e.key === "Enter") preguntar();
+  });
+</script>
+
+</body>
+</html>
